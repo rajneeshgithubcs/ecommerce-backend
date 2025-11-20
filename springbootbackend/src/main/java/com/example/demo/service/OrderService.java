@@ -3,10 +3,10 @@ package com.example.demo.service;
 import com.example.demo.model.Order;
 import com.example.demo.model.OrderItem;
 import com.example.demo.repository.OrderRepository;
-import com.example.demo.repository.ShoeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -15,58 +15,67 @@ public class OrderService {
     @Autowired
     private OrderRepository orderRepository;
 
-    @Autowired
-    private ShoeRepository shoeRepository;
-
     // ====================================================
-    // ✅ CREATE ORDER — Matches frontend format fully
+    // ✅ CREATE ORDER (Correct mapping + REAL transactionId)
     // ====================================================
-    public Order createOrder(String userId, List<Map<String, Object>> items) {
+    public Order createOrder(
+            String userId,
+            List<Map<String, Object>> items,
+            String address,
+            String paymentMethod,
+            Integer totalPrice,
+            String transactionId   // ⭐ RECEIVED from frontend
+    ) {
 
         List<OrderItem> orderItems = new ArrayList<>();
 
         for (Map<String, Object> item : items) {
 
-            String shoeId = (String) item.get("id");
-            String name = (String) item.get("name");
-            int quantity = (int) item.get("quantity");
-            int size = (int) item.get("size");
-            double price = Double.parseDouble(item.get("price").toString());
-            String image = (String) item.get("image");
+            OrderItem orderItem = new OrderItem();
 
-            // 🔥 Create order item with ALL required fields
-            OrderItem orderItem = new OrderItem(
-                    shoeId,
-                    name,
-                    quantity,
-                    size,
-                    price,
-                    image
-            );
+            orderItem.setShoeId((String) item.get("id"));
+            orderItem.setName((String) item.get("name"));
+            orderItem.setImage((String) item.get("image"));
+
+            orderItem.setQuantity(Integer.parseInt(item.get("quantity").toString()));
+            orderItem.setSize(Integer.parseInt(item.get("size").toString()));
+
+            orderItem.setPrice(Double.parseDouble(item.get("price").toString()));
 
             orderItems.add(orderItem);
         }
 
-        // Calculate total bill
-        double totalAmount = orderItems.stream()
-                .mapToDouble(i -> i.getPrice() * i.getQuantity())
-                .sum();
+        // Build final Order object
+        Order order = new Order();
+        order.setUserId(userId);
+        order.setItems(orderItems);
+        order.setAddress(address);
+        order.setPaymentMethod(paymentMethod);
+        order.setTotalPrice(totalPrice);
 
-        // Create and save order
-        Order order = new Order(userId, orderItems, totalAmount);
+        // ⭐ If transactionId is null (COD), generate fallback safe value
+        if (transactionId == null || transactionId.isBlank()) {
+            transactionId = "COD-" + UUID.randomUUID().toString().substring(0, 8);
+        }
+
+        order.setTransactionId(transactionId);
+
+        order.setStatus("CONFIRMED");
+        order.setOrderDate(LocalDateTime.now());
 
         return orderRepository.save(order);
     }
 
     // ====================================================
-    // ✅ GET ALL ORDERS FOR USER
+    // GET ALL ORDERS FOR USER
     // ====================================================
     public List<Order> getOrdersForUser(String userId) {
         return orderRepository.findByUserId(userId);
     }
+
     // ====================================================
-// ❌ DELETE ORDER COMPLETELY
-// ====================================================
+    // DELETE ORDER
+    // ====================================================
     public boolean deleteOrder(String orderId, String userId) {
 
         Optional<Order> optionalOrder = orderRepository.findById(orderId);
@@ -74,17 +83,14 @@ public class OrderService {
 
         Order order = optionalOrder.get();
 
-        // Check user ownership
         if (!order.getUserId().equals(userId)) return false;
 
-        // Delete from DB
         orderRepository.delete(order);
         return true;
     }
 
-
     // ====================================================
-    // ❌ CANCEL ORDER (Only if user owns it)
+    // CANCEL ORDER
     // ====================================================
     public boolean cancelOrder(String orderId, String userId) {
 
@@ -95,7 +101,7 @@ public class OrderService {
 
         if (!order.getUserId().equals(userId)) return false;
 
-        order.setStatus("Canceled");
+        order.setStatus("CANCELLED");
         orderRepository.save(order);
 
         return true;

@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.model.Order;
 import com.example.demo.service.OrderService;
 import com.example.demo.security.JwtUtils;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,10 +20,10 @@ public class OrderController {
     private OrderService orderService;
 
     @Autowired
-    private JwtUtils jwtUtil;   // ⭐ FIXED
+    private JwtUtils jwtUtil;
 
     // ----------------------------------------------------
-    // ✅ PLACE ORDER
+    // ✅ CREATE ORDER (Handles transactionId properly)
     // ----------------------------------------------------
     @PostMapping("/create")
     public ResponseEntity<?> createOrder(
@@ -35,7 +36,7 @@ public class OrderController {
             }
 
             String token = authHeader.substring(7);
-            String userId = jwtUtil.extractUserId(token);  // ⭐ FIXED
+            String userId = jwtUtil.extractUserId(token);
 
             if (userId == null) {
                 return ResponseEntity.status(401).body(Map.of("message", "Invalid token"));
@@ -44,11 +45,24 @@ public class OrderController {
             List<Map<String, Object>> items =
                     (List<Map<String, Object>>) body.get("items");
 
+            String address = (String) body.get("address");
+            String paymentMethod = (String) body.get("paymentMethod");
+            Integer totalPrice = (Integer) body.get("totalPrice");
+            String transactionId = (String) body.get("transactionId");  // ⭐ Coming from frontend
+
             if (items == null || items.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("message", "Order has no items"));
             }
 
-            Order order = orderService.createOrder(userId, items);
+            // ⭐ Create Order
+            Order order = orderService.createOrder(
+                    userId,
+                    items,
+                    address,
+                    paymentMethod,
+                    totalPrice,
+                    transactionId   // ⭐ VERY IMPORTANT
+            );
 
             return ResponseEntity.ok(order);
 
@@ -60,11 +74,10 @@ public class OrderController {
     }
 
     // ----------------------------------------------------
-    // ✅ GET USER ORDERS
+    // ✅ FETCH USER ORDERS
     // ----------------------------------------------------
     @GetMapping("/my-orders")
-    public ResponseEntity<?> getMyOrders(
-            @RequestHeader("Authorization") String authHeader) {
+    public ResponseEntity<?> getMyOrders(@RequestHeader("Authorization") String authHeader) {
 
         try {
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -79,7 +92,6 @@ public class OrderController {
             }
 
             List<Order> orders = orderService.getOrdersForUser(userId);
-
             return ResponseEntity.ok(orders);
 
         } catch (Exception e) {
@@ -88,9 +100,10 @@ public class OrderController {
                     .body(Map.of("error", "Failed to fetch orders", "details", e.getMessage()));
         }
     }
+
     // ----------------------------------------------------
-// ❌ DELETE ORDER (Remove Completely)
-// ----------------------------------------------------
+    // ❌ DELETE ORDER
+    // ----------------------------------------------------
     @DeleteMapping("/delete/{orderId}")
     public ResponseEntity<?> deleteOrder(
             @RequestHeader("Authorization") String authHeader,
@@ -98,8 +111,7 @@ public class OrderController {
 
         try {
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                return ResponseEntity.status(401)
-                        .body(Map.of("message", "Missing token"));
+                return ResponseEntity.status(401).body(Map.of("message", "Missing token"));
             }
 
             String token = authHeader.substring(7);
@@ -120,7 +132,6 @@ public class OrderController {
                     .body(Map.of("error", "Failed to delete order"));
         }
     }
-
 
     // ----------------------------------------------------
     // ❌ CANCEL ORDER
